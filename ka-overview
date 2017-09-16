@@ -1,0 +1,13 @@
+#!/bin/bash
+cd 
+
+ps x | grep chromium-browse[r] | sed -re  's/--.*(user-data-dir=[^[:space:]]*).*--[^[:space:]]*/--\1/; s/--user-data-dir.*chromium.//'
+echo
+
+kactivities-cli --list-activities
+echo
+
+ls -ld --color .config/chromium*  .local/share/applications/chromium*
+echo
+
+du -sm         .config/chromium*
