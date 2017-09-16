@@ -1,0 +1,112 @@
+#!/bin/bash
+
+#dbg=echo
+
+log () { echo "$0 >>>" "$@"; }
+log "args: <$@>"
+
+#----------------------------------
+# Config section:
+wb_name="chromium-browser"
+wb_desktop="/usr/share/applications/$wb_name.desktop"
+wb_path="/usr/bin/chromium-browser"
+#----------------------------------
+
+ka_name=$(kactivities-cli --current-activity | cut -d' ' -f3- | sed -e 's/ (.*//' )
+ka_id="$( kactivities-cli --current-activity | cut -d' ' -f2)"
+ka_desktop="$HOME/.local/share/applications/$wb_name.desktop"
+ka_desktop4ka="$HOME/.local/share/applications/$wb_name.kactivity-$ka_id.desktop"
+
+wb_confbase="$HOME/.config"
+         ka_profile_path="$wb_confbase/chromium.kactivity-$ka_id"
+    default_profile_path="$wb_confbase/chromium"
+list_aktivities_profiles="$wb_confbase/chromium.kactivity-*"
+
+wb_cmd="$wb_path --user-data-dir=$ka_profile_path"
+
+
+if [ "$0" = "$wb_path" ]; then
+	log "Fatal: recursive call of '$wb_path' detected"
+	exit 1
+fi
+
+##------------------------------------------
+## Initial setup
+##------------------------------------------
+# perActivity never used -> rename default profile to current activity profile and create empty default profile
+#	* Chromium -> no  chromium.kactivities-*/ datadirs do not exist
+#	* Firefox  -> no  [a-z]{8}.kactivities-*/ profiles do not exist 
+
+# webbrower never used aka default profile dir does not exit -> create default profile
+#	* Chromium -> do nothing, will be created on the fly
+#	* Firefox  -> create a profile 'default'
+
+# perActivity profiles exist: copy default profile
+
+no_activity_profiles_found () {
+	if [ "x$(echo $list_aktivities_profiles)" = "x$list_aktivities_profiles" ]; then
+		true
+	else
+		false
+	fi
+}
+
+##--------------------------------------------------------------
+## Copy default broswer setup for the activity
+
+if [ -d "$ka_profile_path" ]; then
+	# activity profile already exists -> nothing todo ;-)
+	true
+else
+	if no_activity_profiles_found; then
+		# Activiy browser never used -> use default setup for the activity
+		if [ -d "$default_profile_path" ]; then
+			log "Rename browser default to '$ka_profile_path'"
+			$dbg mv "$default_profile_path/" "$ka_profile_path/"
+		fi
+	else
+		# browser4activity was used before
+		if [ -d "$default_profile_path" ]; then
+			log "Copy the default setup to '$ka_profile_path'"
+			$dbg rsync -a --exclude "Singleton[A-Z]*" \
+				      --exclude "Crash Reports/" \
+				"$default_profile_path/." "$ka_profile_path/"
+		else
+			# Chromium creates it on 1st use -> do nothing
+			true
+		fi
+	fi
+fi	
+
+##----------------------------------------------------------------------------------------
+## Generate master desktop file that hides the systemwide desktop file:
+##	* append '(per Activity)' to the entries
+##	* add an action to edit the the default settings from new acitivies
+##
+if [ ! -r "$ka_desktop" ]; then
+	log "Create '$wb_name' desktop file '$ka_desktop'..."
+	# FIXME: when wb_name and wb_cmd: special sed chars, e.g. '&', they must be escaped
+	{
+		sed -e "/^Name=/ s/\$/ (per Activity)/;
+                        /^Name\[..*]=/ s/\$/ (per Activity)/;
+                        /^GenericName=/ s/\$/ (per Activity)/;
+                        /^GenericName\[..*]=/ s/\$/ (per Activity)/;
+                        /^Actions=/ s/\$/EditDefault;/" "$wb_desktop"
+		cat <<-EOT
+
+			[Desktop Action EditDefault]
+			Name=Edit Default Settings for New Activities
+			Exec=$wb_path --user-data-dir=$default_profile_path
+			EOT
+			
+	} >  "$ka_desktop"
+fi
+
+# We need only one desktop file (no need to pin it)
+# qdbus org.kde.ActivityManager /ActivityManager/Resources/Linking LinkResourceToActivity :global "$ka_desktop" :current
+# log "Launcher '$ka_desktop' linked to current activity: '$ka_name'"
+
+##----------------------------------------------------------------------------------------
+
+log Starting: $wb_cmd "$@"
+$dbg exec $wb_cmd "$@" &
